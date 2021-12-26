@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"os"
 	"reflect"
@@ -1147,4 +1148,60 @@ func TestSmallInput(t *testing.T) {
 	if !reflect.DeepEqual(dataset, output) {
 		t.Error("chunk mismatch")
 	}
+}
+
+func TestRightShift(t *testing.T) {
+	file, err := os.Open("fixtures/SekienAkashita.jpg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+
+	buffer := make([]byte, 8*1024)
+	n, _ := file.Read(buffer)
+	if n != len(buffer) {
+		t.Fatal("read failed")
+	}
+
+	n = 32
+	var hash uint = 0
+	var breakPoint int
+	for ; breakPoint < n; breakPoint++ {
+		index := uint(buffer[breakPoint])
+		breakPoint += 1
+		hash = (hash >> 1) + table[index]
+	}
+	hash1 := hash
+	log.Println("hash1=", hash1)
+
+	n = 64
+	for ; breakPoint < n; breakPoint++ {
+		index := uint(buffer[breakPoint])
+		breakPoint += 1
+		hash = (hash >> 1) + table[index]
+	}
+	log.Println("hash2=", hash)
+
+	breakPoint = 32
+	n = 64
+	//hash = hash1
+	for ; breakPoint < n; breakPoint++ {
+		index := uint(buffer[breakPoint])
+		breakPoint += 1
+		hash = (hash >> 1) + table[index]
+	}
+	log.Println("hash3=", hash, "buf1", buffer[1], 0x79)
+
+	//buffer[1] = 0x79
+	buffer[2] = 0x79
+	hash = 0
+	breakPoint = 0
+	n = 64
+	for ; breakPoint < n; breakPoint++ {
+		index := uint(buffer[breakPoint])
+		breakPoint += 1
+		hash = (hash >> 1) + table[index]
+	}
+	log.Println("hash4=", hash)
+
 }

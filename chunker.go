@@ -97,6 +97,11 @@ func NewChunker(ctx context.Context, opts ...Option) (*FastCDC, error) {
 		bufferSize = config.bufferSize + config.maxSize - remaining
 	}
 
+	/* bits := log2(config.avgSize)
+	if (1 << bits) != config.avgSize {
+		return nil, fmt.Errorf("avgSize should equal to 1<<bits")
+	} */
+
 	bits := logarithm2(config.avgSize)
 	// Mask use 1 bits normalization.
 	// https://github.com/ronomon/deduplication#content-dependent-chunking
@@ -175,27 +180,45 @@ func (f *FastCDC) split(data io.Reader, fn ChunkFn, eof error) error {
 		default:
 		}
 
-		// Fill the buffer with data but do not erase an eventual carry
-		bytesRead, err := data.Read(f.buffer[f.carry+f.previousBytesRead:])
-		if err != nil && err != io.EOF {
-			return err
-		}
-
-		if err == io.EOF && f.previousBytesRead == 0 {
-			return nil
-		}
-
-		// When finalize is called, we pass EOF to indicate that their is no more data.
-		// It's robust because and empty part during a stream will not trigger the chunking
-		// process and break the deterministic chunking judgement.
+		var bytesRead int
+		var err error
 		if f.streamMode {
+			// Fill the buffer with data but do not erase an eventual carry
+			bytesRead, err = data.Read(f.buffer[f.carry+f.previousBytesRead:])
+			if err != nil && err != io.EOF {
+				return err
+			}
+
+			if err == io.EOF && f.previousBytesRead == 0 {
+				return nil
+			}
+
+			// When finalize is called, we pass EOF to indicate that their is no more data.
+			// It's robust because and empty part during a stream will not trigger the chunking
+			// process and break the deterministic chunking judgement.
 			// Return until the internal buffer is completely filled or until EOF
 			remaining := uint(len(f.buffer)) - f.carry - f.previousBytesRead - uint(bytesRead)
 			if remaining != 0 && eof != io.EOF {
 				f.previousBytesRead += uint(bytesRead)
 				return nil
 			}
+		} else {
+			// Fill the buffer with data but do not erase an eventual carry
+			bytesRead, err = io.ReadFull(data, f.buffer[f.carry+f.previousBytesRead:])
+			if err != nil {
+				if err == io.ErrUnexpectedEOF {
+					err = io.EOF
+				}
+				if err != io.EOF {
+					return err
+				}
+			}
+
+			if err == io.EOF && f.previousBytesRead == 0 {
+				return nil
+			}
 		}
+
 		// byteReadWithCarry is the real upper bound up to which we must iterate
 		bytesReadWithCarry := uint(bytesRead) + f.carry + f.previousBytesRead
 		f.offset = f.carry
@@ -338,12 +361,29 @@ func mask(bits uint) uint {
 	if bits > 31 {
 		panic("bits too high")
 	}
-	return uint(math.Pow(2, float64(bits)) - 1)
+	return uint(1<<bits) - 1
+	//return uint(math.Pow(2, float64(bits)) - 1)
 }
 
 // Base 2 logarithm
 func logarithm2(value uint) uint {
 	return uint(math.Round(math.Log2(float64(value))))
+}
+
+var log2Tab32 []uint = []uint{
+	0, 9, 1, 10, 13, 21, 2, 29,
+	11, 14, 16, 18, 22, 25, 3, 30,
+	8, 12, 20, 28, 15, 17, 24, 7,
+	19, 27, 23, 6, 26, 5, 4, 31}
+
+func log2(value uint) uint {
+	value |= value >> 1
+	value |= value >> 2
+	value |= value >> 4
+	value |= value >> 8
+	value |= value >> 16
+	v := log2Tab32[((value*uint(0x07C4ACDD))&0xFFFFFFFF)>>27]
+	return v
 }
 
 var table = [256]uint{
