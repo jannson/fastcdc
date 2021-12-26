@@ -52,14 +52,14 @@ func Example_basic() {
 	chunker, err := NewChunker(context.Background(), With32kChunks())
 	handleError(err)
 
-	err = chunker.Split(file, func(offset, length uint, chunk []byte) error {
+	err = chunker.Split(file, func(offset int64, length int, chunk []byte) error {
 		// the chunk is only valid in the callback, copy it for later use
 		fmt.Printf("offset: %d, length: %d, sum: %x\n", offset, length, sha256.Sum256(chunk))
 		return nil
 	})
 	handleError(err)
 
-	err = chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	err = chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		// the chunk is only valid in the callback, copy it for later use
 		fmt.Printf("offset: %d, length: %d, sum: %x\n", offset, length, sha256.Sum256(chunk))
 		return nil
@@ -90,7 +90,7 @@ func Example_stream() {
 			}
 			handleError(err)
 		}
-		err = chunker.Split(bytes.NewReader(buf[:n]), func(offset, length uint, chunk []byte) error {
+		err = chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
 			// the chunk is only valid in the callback, copy it for later use
 			fmt.Printf("offset: %d, length: %d, sum: %x\n", offset, length, sha256.Sum256(chunk))
 			return nil
@@ -98,7 +98,7 @@ func Example_stream() {
 		handleError(err)
 	}
 
-	err = chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	err = chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		// the chunk is only valid in the callback, copy it for later use
 		fmt.Printf("offset: %d, length: %d, sum: %x\n", offset, length, sha256.Sum256(chunk))
 		return nil
@@ -254,19 +254,19 @@ func TestSplitPanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = chunker.Split(bytes.NewReader(data), func(offset, length uint, chunk []byte) error {
+	err = chunker.Split(bytes.NewReader(data), func(offset int64, length int, chunk []byte) error {
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = chunker.Split(bytes.NewReader(data), func(offset, length uint, chunk []byte) error {
+	err = chunker.Split(bytes.NewReader(data), func(offset int64, length int, chunk []byte) error {
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	err = chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		return nil
 	})
 	if err != nil {
@@ -291,7 +291,7 @@ func TestFinalizePanic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	err = chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		return nil
 	})
 	if err != nil {
@@ -396,14 +396,14 @@ func TestCanceledContext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = chunker.Split(bytes.NewReader(data), func(offset, length uint, chunk []byte) error {
+	err = chunker.Split(bytes.NewReader(data), func(offset int64, length int, chunk []byte) error {
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("want = %s, got = %s", context.Canceled, err)
 	}
 
-	err = chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	err = chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		return nil
 	})
 	if !errors.Is(err, context.Canceled) {
@@ -413,8 +413,8 @@ func TestCanceledContext(t *testing.T) {
 
 func TestAllZeros(t *testing.T) {
 	type Chunk struct {
-		Offset uint
-		Length uint
+		Offset int64
+		Length int
 	}
 	buffer := make([]byte, 10240)
 	chunker, err := NewChunker(context.Background(), WithChunksSize(64, 256, 1024), WithBufferSize(1024))
@@ -423,14 +423,14 @@ func TestAllZeros(t *testing.T) {
 	}
 
 	chunks := make([]Chunk, 0, 6)
-	if err := chunker.Split(bytes.NewBuffer(buffer), func(offset, length uint, chunk []byte) error {
+	if err := chunker.Split(bytes.NewBuffer(buffer), func(offset int64, length int, chunk []byte) error {
 		chunks = append(chunks, Chunk{offset, length})
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		chunks = append(chunks, Chunk{offset, length})
 		return nil
 	}); err != nil {
@@ -464,8 +464,8 @@ func TestRandomInputFuzz(t *testing.T) {
 	t.Logf("seed, %d", seed)
 
 	type Chunk struct {
-		Offset uint
-		Length uint
+		Offset int64
+		Length int
 		Chunk  []byte
 	}
 
@@ -498,7 +498,7 @@ func TestRandomInputFuzz(t *testing.T) {
 				}
 
 				regularHasher := sha256.New()
-				if err := chunker.Split(file, func(offset, length uint, chunk []byte) error {
+				if err := chunker.Split(file, func(offset int64, length int, chunk []byte) error {
 					chunks = append(chunks, Chunk{offset, length, chunk})
 					io.Copy(regularHasher, bytes.NewReader(chunk))
 					return nil
@@ -506,7 +506,7 @@ func TestRandomInputFuzz(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+				if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 					chunks = append(chunks, Chunk{offset, length, chunk})
 					io.Copy(regularHasher, bytes.NewReader(chunk))
 					return nil
@@ -533,7 +533,7 @@ func TestRandomInputFuzz(t *testing.T) {
 						t.Fatal(err)
 					}
 
-					if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset, length uint, chunk []byte) error {
+					if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
 						chunksStream = append(chunksStream, Chunk{offset, length, chunk})
 						io.Copy(streamHasher, bytes.NewReader(chunk))
 						return nil
@@ -542,7 +542,7 @@ func TestRandomInputFuzz(t *testing.T) {
 					}
 
 				}
-				if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+				if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 					chunksStream = append(chunksStream, Chunk{offset, length, chunk})
 					io.Copy(streamHasher, bytes.NewReader(chunk))
 					return nil
@@ -563,16 +563,16 @@ func TestRandomInputFuzz(t *testing.T) {
 					if chunk.Length != chunksStream[i].Length {
 						t.Errorf("length: want = %d, got = %d, buffer length = %d, stream buffer length = %d, file size = %d", chunk.Offset, chunksStream[i].Offset, bufSize, sBufSize, rd)
 					}
-					if chunk.Length != uint(len(chunk.Chunk)) {
+					if chunk.Length != len(chunk.Chunk) {
 						t.Errorf("regular split: length mismatch: want = %d, got = %d, buffer length = %d, file size = %d", chunk.Length, uint(len(chunk.Chunk)), bufSize, rd)
 					}
-					if chunksStream[i].Length != uint(len(chunksStream[i].Chunk)) {
+					if chunksStream[i].Length != len(chunksStream[i].Chunk) {
 						t.Errorf("stream split: length mismatch: want = %d, got = %d, buffer length = %d, stream buffer length = %d, file size = %d", chunk.Length, uint(len(chunk.Chunk)), bufSize, sBufSize, rd)
 					}
-					if (chunk.Length < uint(tc.MinSize) || chunk.Length > uint(tc.MaxSize)) && i != len(chunks)-1 {
+					if (chunk.Length < int(tc.MinSize) || chunk.Length > int(tc.MaxSize)) && i != len(chunks)-1 {
 						t.Errorf("regular split: chunks size: %d < %d < %d, buffer length = %d, file size = %d", tc.MinSize, chunk.Length, tc.MaxSize, bufSize, rd)
 					}
-					if (chunksStream[i].Length < uint(tc.MinSize) || chunksStream[i].Length > uint(tc.MaxSize)) && i != len(chunksStream)-1 {
+					if (chunksStream[i].Length < int(tc.MinSize) || chunksStream[i].Length > int(tc.MaxSize)) && i != len(chunksStream)-1 {
 						t.Errorf("regular split: chunks size: %d < %d < %d, buffer length = %d, stream buffer length = %d, file size = %d", tc.MinSize, chunksStream[i].Length, tc.MaxSize, bufSize, sBufSize, rd)
 					}
 				}
@@ -594,8 +594,8 @@ func TestRandomInputFuzz(t *testing.T) {
 
 func TestSekienFuzz(t *testing.T) {
 	type Chunk struct {
-		Offset uint
-		Length uint
+		Offset int64
+		Length int
 	}
 
 	tests := []struct {
@@ -662,8 +662,8 @@ func TestSekienFuzz(t *testing.T) {
 				sBufSize := uint(rand.Intn(sMax-sMin+1) + sMin)
 
 				type Chunk struct {
-					Offset uint
-					Length uint
+					Offset int64
+					Length int
 					Chunk  []byte
 				}
 
@@ -674,7 +674,7 @@ func TestSekienFuzz(t *testing.T) {
 				}
 
 				regularHasher := sha256.New()
-				if err := chunker.Split(file, func(offset, length uint, chunk []byte) error {
+				if err := chunker.Split(file, func(offset int64, length int, chunk []byte) error {
 					chunks = append(chunks, Chunk{offset, length, chunk})
 					io.Copy(regularHasher, bytes.NewReader(chunk))
 					return nil
@@ -682,7 +682,7 @@ func TestSekienFuzz(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+				if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 					io.Copy(regularHasher, bytes.NewReader(chunk))
 					chunks = append(chunks, Chunk{offset, length, chunk})
 					return nil
@@ -708,7 +708,7 @@ func TestSekienFuzz(t *testing.T) {
 						}
 						t.Fatal(err)
 					}
-					if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset, length uint, chunk []byte) error {
+					if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
 						chunksStream = append(chunksStream, Chunk{offset, length, chunk})
 						io.Copy(streamHasher, bytes.NewReader(chunk))
 						return nil
@@ -716,7 +716,7 @@ func TestSekienFuzz(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
-				if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+				if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 					io.Copy(streamHasher, bytes.NewReader(chunk))
 					chunksStream = append(chunksStream, Chunk{offset, length, chunk})
 					return nil
@@ -743,7 +743,7 @@ func TestSekienFuzz(t *testing.T) {
 					if chunk.Length != tc.Want[i].Length {
 						t.Errorf("length: want = %d, got = %d, buffer = %d, stream buffer length = %d", chunk.Offset, tc.Want[i].Offset, bufSize, sBufSize)
 					}
-					if chunk.Length != uint(len(chunk.Chunk)) {
+					if chunk.Length != int(len(chunk.Chunk)) {
 						t.Errorf("regular split: length mismatch: want = %d, got = %d, buffer length = %d", chunk.Length, uint(len(chunk.Chunk)), bufSize)
 					}
 				}
@@ -755,7 +755,7 @@ func TestSekienFuzz(t *testing.T) {
 					if chunk.Length != tc.Want[i].Length {
 						t.Errorf("length: want = %d, got = %d, buffer = %d, stream buffer length = %d", chunk.Offset, tc.Want[i].Offset, bufSize, sBufSize)
 					}
-					if chunk.Length != uint(len(chunk.Chunk)) {
+					if chunk.Length != int(len(chunk.Chunk)) {
 						t.Errorf("regular split: length mismatch: want = %d, got = %d, buffer length = %d", chunk.Length, uint(len(chunk.Chunk)), bufSize)
 					}
 				}
@@ -783,8 +783,8 @@ func TestSekienChunks(t *testing.T) {
 	defer file.Close()
 
 	type Chunk struct {
-		Offset uint
-		Length uint
+		Offset int64
+		Length int
 	}
 
 	cases := map[string]struct {
@@ -834,7 +834,7 @@ func TestSekienChunks(t *testing.T) {
 			}
 
 			hasher := sha256.New()
-			if err := chunker.Split(file, func(offset, length uint, chunk []byte) error {
+			if err := chunker.Split(file, func(offset int64, length int, chunk []byte) error {
 				chunks = append(chunks, Chunk{offset, length})
 				_, err := io.Copy(hasher, bytes.NewReader(chunk))
 				return err
@@ -842,7 +842,7 @@ func TestSekienChunks(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+			if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 				chunks = append(chunks, Chunk{offset, length})
 				_, err := io.Copy(hasher, bytes.NewReader(chunk))
 				return err
@@ -875,8 +875,8 @@ func TestSekienChunksStream(t *testing.T) {
 	defer file.Close()
 
 	type Chunk struct {
-		Offset uint
-		Length uint
+		Offset int64
+		Length int
 	}
 
 	cases := map[string]struct {
@@ -936,7 +936,7 @@ func TestSekienChunksStream(t *testing.T) {
 					t.Fatal(err)
 				}
 
-				if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset, length uint, chunk []byte) error {
+				if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
 					chunks = append(chunks, Chunk{offset, length})
 					_, err := io.Copy(hasher, bytes.NewReader(chunk))
 					return err
@@ -946,7 +946,7 @@ func TestSekienChunksStream(t *testing.T) {
 
 			}
 
-			if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+			if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 				chunks = append(chunks, Chunk{offset, length})
 				_, err := io.Copy(hasher, bytes.NewReader(chunk))
 				return err
@@ -972,8 +972,8 @@ func TestSekienChunksStream(t *testing.T) {
 
 func TestSekien16kChunksStreamWithMissingPart(t *testing.T) {
 	type Chunk struct {
-		Offset uint
-		Length uint
+		Offset int64
+		Length int
 	}
 	results := []Chunk{
 		{0, 22366},
@@ -1013,7 +1013,7 @@ func TestSekien16kChunksStreamWithMissingPart(t *testing.T) {
 			}
 		}
 
-		if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset, length uint, chunk []byte) error {
+		if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
 			chunks = append(chunks, Chunk{offset, length})
 			return nil
 		}); err != nil {
@@ -1022,7 +1022,7 @@ func TestSekien16kChunksStreamWithMissingPart(t *testing.T) {
 		cpt++
 	}
 
-	if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		chunks = append(chunks, Chunk{offset, length})
 		return nil
 	}); err != nil {
@@ -1052,14 +1052,14 @@ func TestSekienMinChunks(t *testing.T) {
 	}
 
 	hasher := sha256.New()
-	if err := chunker.Split(file, func(offset, length uint, chunk []byte) error {
+	if err := chunker.Split(file, func(offset int64, length int, chunk []byte) error {
 		_, err := io.Copy(hasher, bytes.NewReader(chunk))
 		return err
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		_, err := io.Copy(hasher, bytes.NewReader(chunk))
 		return err
 	}); err != nil {
@@ -1074,8 +1074,8 @@ func TestSekienMinChunks(t *testing.T) {
 
 func TestSekienMaxChunks(t *testing.T) {
 	type Chunk struct {
-		Offset uint
-		Length uint
+		Offset int64
+		Length int
 	}
 
 	file, err := os.Open("fixtures/SekienAkashita.jpg")
@@ -1091,7 +1091,7 @@ func TestSekienMaxChunks(t *testing.T) {
 	}
 
 	hasher := sha256.New()
-	if err := chunker.Split(file, func(offset, length uint, chunk []byte) error {
+	if err := chunker.Split(file, func(offset int64, length int, chunk []byte) error {
 		chunks = append(chunks, Chunk{offset, length})
 		_, err := io.Copy(hasher, bytes.NewReader(chunk))
 		return err
@@ -1099,7 +1099,7 @@ func TestSekienMaxChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		chunks = append(chunks, Chunk{offset, length})
 		_, err := io.Copy(hasher, bytes.NewReader(chunk))
 		return err
@@ -1131,14 +1131,14 @@ func TestSmallInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	output := make([]byte, 0, 8193)
-	if err := chunker.Split(bytes.NewReader(dataset), func(offset, length uint, chunk []byte) error {
+	if err := chunker.Split(bytes.NewReader(dataset), func(offset int64, length int, chunk []byte) error {
 		output = append(output, chunk...)
 		return nil
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+	if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 		output = append(output, chunk...)
 		return nil
 	}); err != nil {

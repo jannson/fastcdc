@@ -25,10 +25,10 @@ func benchmark(b *testing.B, size int, data []byte, opts ...Option) {
 	b.SetBytes(int64(size))
 	b.ReportAllocs()
 
-	var chunks uint
-	var totalLength uint
+	var chunks int
+	var totalLength int
 	for i := 0; i < b.N; i++ {
-		if err := chunker.Split(bytes.NewReader(data), func(offset, length uint, chunk []byte) error {
+		if err := chunker.Split(bytes.NewReader(data), func(offset int64, length int, chunk []byte) error {
 			chunks++
 			totalLength += length
 			return nil
@@ -36,7 +36,7 @@ func benchmark(b *testing.B, size int, data []byte, opts ...Option) {
 			b.Fatal(err)
 		}
 
-		if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+		if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 			chunks++
 			totalLength += length
 			return nil
@@ -58,8 +58,8 @@ func benchmarkStream(b *testing.B, size int, data []byte, opts ...Option) {
 	b.SetBytes(int64(size))
 	b.ReportAllocs()
 
-	var chunks uint
-	var totalLength uint
+	var chunks int
+	var totalLength int
 	buf := make([]byte, 65_536)
 	for i := 0; i < b.N; i++ {
 		reader := bytes.NewReader(data)
@@ -72,7 +72,7 @@ func benchmarkStream(b *testing.B, size int, data []byte, opts ...Option) {
 				b.Fatal(err)
 			}
 
-			if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset, length uint, chunk []byte) error {
+			if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
 				chunks++
 				totalLength += length
 				return nil
@@ -81,7 +81,7 @@ func benchmarkStream(b *testing.B, size int, data []byte, opts ...Option) {
 			}
 		}
 
-		if err := chunker.Finalize(func(offset, length uint, chunk []byte) error {
+		if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
 			chunks++
 			totalLength += length
 			return nil

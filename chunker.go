@@ -20,15 +20,15 @@ const (
 
 type FastCDC struct {
 	buffer            []byte
-	carry             uint
-	realOffset        uint
-	offset            uint
+	carry             int
+	realOffset        int64
+	offset            int
 	minSize           uint
 	avgSize           uint
 	maxSize           uint
 	maskS             uint
 	maskL             uint
-	previousBytesRead uint
+	previousBytesRead int
 	streamMode        bool
 	firstCall         bool
 	ctx               context.Context
@@ -123,7 +123,7 @@ func NewChunker(ctx context.Context, opts ...Option) (*FastCDC, error) {
 // ChunkFn is called by the split function when a chunk is found.
 // The chunk is only valid in the callback and must be copied for
 // later use.
-type ChunkFn func(offset, length uint, chunk []byte) error
+type ChunkFn func(offset int64, length int, chunk []byte) error
 
 // Split take the current reader and try to find chunk of the defined average size. When a chunk is
 // found, Split call the callback function with the offset, length and chunk. Split reuse it's
@@ -197,9 +197,9 @@ func (f *FastCDC) split(data io.Reader, fn ChunkFn, eof error) error {
 			// It's robust because and empty part during a stream will not trigger the chunking
 			// process and break the deterministic chunking judgement.
 			// Return until the internal buffer is completely filled or until EOF
-			remaining := uint(len(f.buffer)) - f.carry - f.previousBytesRead - uint(bytesRead)
+			remaining := len(f.buffer) - f.carry - f.previousBytesRead - bytesRead
 			if remaining != 0 && eof != io.EOF {
-				f.previousBytesRead += uint(bytesRead)
+				f.previousBytesRead += bytesRead
 				return nil
 			}
 		} else {
@@ -220,7 +220,7 @@ func (f *FastCDC) split(data io.Reader, fn ChunkFn, eof error) error {
 		}
 
 		// byteReadWithCarry is the real upper bound up to which we must iterate
-		bytesReadWithCarry := uint(bytesRead) + f.carry + f.previousBytesRead
+		bytesReadWithCarry := bytesRead + f.carry + f.previousBytesRead
 		f.offset = f.carry
 		f.previousBytesRead = 0
 
@@ -235,7 +235,7 @@ func (f *FastCDC) split(data io.Reader, fn ChunkFn, eof error) error {
 				if err := fn(f.realOffset, chunkLength, chunk); err != nil {
 					return err
 				}
-				f.realOffset += breakpoint + f.carry
+				f.realOffset += int64(breakpoint + f.carry)
 				f.carry = 0
 				f.offset = endOffset
 			} else {
@@ -254,12 +254,12 @@ func (f *FastCDC) split(data io.Reader, fn ChunkFn, eof error) error {
 
 // Breakpoint return the next chunk breakpoint on the buffer.
 // If there is no breakpoint found, it return 0.
-func (f *FastCDC) breakpoint(buffer []byte) uint {
+func (f *FastCDC) breakpoint(buffer []byte) int {
 	// if there is bytes carried from the last breakpoint call,
 	// reduce the expected chunk size to match the required size.
-	minSize := min(f.minSize, f.carry, 1)
-	avgSize := min(f.avgSize, f.carry, 1)
-	maxSize := min(f.maxSize, f.carry, 1)
+	minSize := min(f.minSize, uint(f.carry), 1)
+	avgSize := min(f.avgSize, uint(f.carry), 1)
+	maxSize := min(f.maxSize, uint(f.carry), 1)
 
 	bufferLength := uint(len(buffer))
 
@@ -292,7 +292,7 @@ func (f *FastCDC) breakpoint(buffer []byte) uint {
 		breakPoint += 1
 		hash = (hash >> 1) + table[index]
 		if hash&f.maskS == 0 {
-			return breakPoint
+			return int(breakPoint)
 		}
 	}
 
@@ -304,7 +304,7 @@ func (f *FastCDC) breakpoint(buffer []byte) uint {
 		breakPoint += 1
 		hash = (hash >> 1) + table[index]
 		if hash&f.maskL == 0 {
-			return breakPoint
+			return int(breakPoint)
 		}
 	}
 
@@ -314,7 +314,7 @@ func (f *FastCDC) breakpoint(buffer []byte) uint {
 	// the max size allowed and we should emit.
 	// It's also ensure than the carry is never bigger than the max size.
 	if breakPoint == maxSize {
-		return breakPoint
+		return int(breakPoint)
 	}
 
 	// If the breakPoint is < maxSize, the buffer we got is too small to find a chunk
