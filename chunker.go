@@ -109,6 +109,7 @@ func NewChunker(ctx context.Context, opts ...Option) (*FastCDC, error) {
 	maskL := mask(bits - 1)
 
 	return &FastCDC{
+		// TODO mempool
 		buffer:     make([]byte, bufferSize),
 		minSize:    config.minSize,
 		avgSize:    config.avgSize,
@@ -204,12 +205,17 @@ func (f *FastCDC) split(data io.Reader, fn ChunkFn, eof error) error {
 			}
 		} else {
 			// Fill the buffer with data but do not erase an eventual carry
+			//bytesRead, err = data.Read(f.buffer[f.carry+f.previousBytesRead:])
 			bytesRead, err = io.ReadFull(data, f.buffer[f.carry+f.previousBytesRead:])
 			if err != nil {
 				if err == io.ErrUnexpectedEOF {
-					err = io.EOF
+					if bytesRead > 0 {
+						err = nil
+					} else {
+						err = io.EOF
+					}
 				}
-				if err != io.EOF {
+				if err != nil && err != io.EOF {
 					return err
 				}
 			}
