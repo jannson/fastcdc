@@ -110,21 +110,3 @@ func Benchmark64kChunks(b *testing.B) {
 	data := randomData(155, size)
 	benchmark(b, size, data, With64kChunks())
 }
-
-func Benchmark16kChunksStream(b *testing.B) {
-	size := 32 * 1024 * 1024
-	data := randomData(155, size)
-	benchmarkStream(b, size, data, With16kChunks(), WithStreamMode())
-}
-
-func Benchmark32kChunksStream(b *testing.B) {
-	size := 32 * 1024 * 1024
-	data := randomData(155, size)
-	benchmarkStream(b, size, data, With32kChunks(), WithStreamMode())
-}
-
-func Benchmark64kChunksStream(b *testing.B) {
-	size := 32 * 1024 * 1024
-	data := randomData(155, size)
-	benchmarkStream(b, size, data, With64kChunks(), WithStreamMode())
-}

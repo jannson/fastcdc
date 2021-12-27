@@ -71,45 +71,6 @@ func Example_basic() {
 	// offset: 49265, length: 60201, sum: 0fe7305ba21a5a5ca9f89962c5a6f3e29cd3e2b36f00e565858e0012e5f8df36
 }
 
-// In this example, the chunker is configured in stream mode to split a file stream part by part into chunk of an average of 32kb.
-// For the sake of simplicity, the stream is simulated by cutting the file in multiple parts before the split.
-func Example_stream() {
-	file, err := os.Open("fixtures/SekienAkashita.jpg")
-	handleError(err)
-	defer file.Close()
-
-	chunker, err := NewChunker(context.Background(), WithStreamMode(), With32kChunks())
-	handleError(err)
-
-	buf := make([]byte, 3*65_536)
-	for {
-		n, err := file.Read(buf)
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			handleError(err)
-		}
-		err = chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
-			// the chunk is only valid in the callback, copy it for later use
-			fmt.Printf("offset: %d, length: %d, sum: %x\n", offset, length, sha256.Sum256(chunk))
-			return nil
-		})
-		handleError(err)
-	}
-
-	err = chunker.Finalize(func(offset int64, length int, chunk []byte) error {
-		// the chunk is only valid in the callback, copy it for later use
-		fmt.Printf("offset: %d, length: %d, sum: %x\n", offset, length, sha256.Sum256(chunk))
-		return nil
-	})
-	handleError(err)
-	// Output:
-	// offset: 0, length: 32857, sum: 5a80871bad4588c7278d39707fe68b8b174b1aa54c59169d3c2c72f1e16ef46d
-	// offset: 32857, length: 16408, sum: 13f6a4c6d42df2b76c138c13e86e1379c203445055c2b5f043a5f6c291fa520d
-	// offset: 49265, length: 60201, sum: 0fe7305ba21a5a5ca9f89962c5a6f3e29cd3e2b36f00e565858e0012e5f8df36
-}
-
 func TestLogarithm2(t *testing.T) {
 	tests := []struct {
 		Value, Result uint
@@ -147,25 +108,6 @@ func TestCeilDiv(t *testing.T) {
 
 	for _, tc := range tests {
 		got := ceilDiv(tc.X, tc.Y)
-		if got != tc.Result {
-			t.Errorf("want = %d, got = %d", tc.Result, got)
-		}
-	}
-}
-
-func TestMin(t *testing.T) {
-	tests := []struct {
-		Point, Carry, Min, Result uint
-	}{
-		{500, 300, 1, 200},
-		{200, 500, 1, 1},
-		{2, 1, 1, 1},
-		{1, 2, 1, 1},
-		{1, 1, 1, 1},
-	}
-
-	for _, tc := range tests {
-		got := min(tc.Point, tc.Carry, tc.Min)
 		if got != tc.Result {
 			t.Errorf("want = %d, got = %d", tc.Result, got)
 		}
@@ -471,10 +413,8 @@ func TestRandomInputFuzz(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {
-			max := 1 * 1024 * 1024  // max buffer size
-			min := tc.MaxSize       // min buffer size for the chunk size range, it's set to the max chunks size
-			sMax := 1 * 1024 * 1024 // max stream buffer size
-			sMin := 1000            // min stream buffer size
+			max := 1 * 1024 * 1024 // max buffer size
+			min := tc.MaxSize      // min buffer size for the chunk size range, it's set to the max chunks size
 
 			// repeat test
 			for i := 0; i < 5000; i++ {
@@ -483,13 +423,7 @@ func TestRandomInputFuzz(t *testing.T) {
 				rand.Read(data)
 				file := bytes.NewReader(data)
 
-				hasher := sha256.New()
-				io.Copy(hasher, file)
-				sum := hasher.Sum(nil)
-				file.Seek(0, 0)
-
 				bufSize := uint(rand.Intn(max-min+1) + min)
-				sBufSize := uint(rand.Intn(sMax-sMin+1) + sMin)
 
 				chunks := make([]Chunk, 0)
 				chunker, err := NewChunker(context.Background(), tc.Opt, WithBufferSize(bufSize))
@@ -512,78 +446,6 @@ func TestRandomInputFuzz(t *testing.T) {
 					return nil
 				}); err != nil {
 					t.Fatal(err)
-				}
-
-				file.Seek(0, 0)
-
-				chunker, err = NewChunker(context.Background(), WithStreamMode(), tc.Opt, WithBufferSize(bufSize))
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				streamHasher := sha256.New()
-				chunksStream := make([]Chunk, 0)
-				buf := make([]byte, sBufSize)
-				for {
-					n, err := file.Read(buf)
-					if err != nil {
-						if err == io.EOF {
-							break
-						}
-						t.Fatal(err)
-					}
-
-					if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
-						chunksStream = append(chunksStream, Chunk{offset, length, chunk})
-						io.Copy(streamHasher, bytes.NewReader(chunk))
-						return nil
-					}); err != nil {
-						t.Fatal(err)
-					}
-
-				}
-				if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
-					chunksStream = append(chunksStream, Chunk{offset, length, chunk})
-					io.Copy(streamHasher, bytes.NewReader(chunk))
-					return nil
-				}); err != nil {
-					t.Fatal(err)
-				}
-
-				if len(chunks) != len(chunksStream) {
-					t.Errorf("length: want = %d, got = %d, buffer length = %d, stream buffer length = %d, file size = %d", len(chunks), len(chunksStream), bufSize, sBufSize, rd)
-					file.Seek(0, 0)
-					continue
-				}
-
-				for i, chunk := range chunks {
-					if chunk.Offset != chunksStream[i].Offset {
-						t.Errorf("offset: want = %d, got = %d, buffer length = %d, stream buffer length = %d, file size = %d", chunk.Offset, chunksStream[i].Offset, bufSize, sBufSize, rd)
-					}
-					if chunk.Length != chunksStream[i].Length {
-						t.Errorf("length: want = %d, got = %d, buffer length = %d, stream buffer length = %d, file size = %d", chunk.Offset, chunksStream[i].Offset, bufSize, sBufSize, rd)
-					}
-					if chunk.Length != len(chunk.Chunk) {
-						t.Errorf("regular split: length mismatch: want = %d, got = %d, buffer length = %d, file size = %d", chunk.Length, uint(len(chunk.Chunk)), bufSize, rd)
-					}
-					if chunksStream[i].Length != len(chunksStream[i].Chunk) {
-						t.Errorf("stream split: length mismatch: want = %d, got = %d, buffer length = %d, stream buffer length = %d, file size = %d", chunk.Length, uint(len(chunk.Chunk)), bufSize, sBufSize, rd)
-					}
-					if (chunk.Length < int(tc.MinSize) || chunk.Length > int(tc.MaxSize)) && i != len(chunks)-1 {
-						t.Errorf("regular split: chunks size: %d < %d < %d, buffer length = %d, file size = %d", tc.MinSize, chunk.Length, tc.MaxSize, bufSize, rd)
-					}
-					if (chunksStream[i].Length < int(tc.MinSize) || chunksStream[i].Length > int(tc.MaxSize)) && i != len(chunksStream)-1 {
-						t.Errorf("regular split: chunks size: %d < %d < %d, buffer length = %d, stream buffer length = %d, file size = %d", tc.MinSize, chunksStream[i].Length, tc.MaxSize, bufSize, sBufSize, rd)
-					}
-				}
-
-				regularSum := regularHasher.Sum(nil)
-				if !reflect.DeepEqual(sum, regularSum) {
-					t.Errorf("regular chunking: sum mismatch: want = %x, got = %x, buffer = %d, , file size = %d", sum, regularSum, bufSize, rd)
-				}
-				streamSum := streamHasher.Sum(nil)
-				if !reflect.DeepEqual(sum, streamSum) {
-					t.Errorf("stream chunking: sum mismatch: want = %x, got = %x, buffer = %d, stream buffer = %d, file size = %d", sum, streamSum, bufSize, sBufSize, rd)
 				}
 
 				file.Seek(0, 0)
@@ -651,15 +513,12 @@ func TestSekienFuzz(t *testing.T) {
 	rand.Seed(time.Now().UnixNano())
 	for _, tc := range tests {
 		t.Run(tc.Name, func(t *testing.T) {
-			max := 1 * 1024 * 1024  // max buffer size
-			min := tc.MaxSize       // min buffer size for the chunk size range, it's set to the max chunks size
-			sMax := 1 * 1024 * 1024 // max stream buffer size
-			sMin := 1000            // min stream buffer size
+			max := 1 * 1024 * 1024 // max buffer size
+			min := tc.MaxSize      // min buffer size for the chunk size range, it's set to the max chunks size
 
 			// repeat test
 			for i := 0; i < 10000; i++ {
 				bufSize := uint(rand.Intn(max-min+1) + min)
-				sBufSize := uint(rand.Intn(sMax-sMin+1) + sMin)
 
 				type Chunk struct {
 					Offset int64
@@ -688,85 +547,6 @@ func TestSekienFuzz(t *testing.T) {
 					return nil
 				}); err != nil {
 					t.Fatal(err)
-				}
-
-				file.Seek(0, 0)
-
-				chunker, err = NewChunker(context.Background(), WithStreamMode(), tc.Opt, WithBufferSize(bufSize))
-				if err != nil {
-					t.Fatal(err)
-				}
-
-				streamHasher := sha256.New()
-				chunksStream := make([]Chunk, 0)
-				buf := make([]byte, sBufSize)
-				for {
-					n, err := file.Read(buf)
-					if err != nil {
-						if err == io.EOF {
-							break
-						}
-						t.Fatal(err)
-					}
-					if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
-						chunksStream = append(chunksStream, Chunk{offset, length, chunk})
-						io.Copy(streamHasher, bytes.NewReader(chunk))
-						return nil
-					}); err != nil {
-						t.Fatal(err)
-					}
-				}
-				if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
-					io.Copy(streamHasher, bytes.NewReader(chunk))
-					chunksStream = append(chunksStream, Chunk{offset, length, chunk})
-					return nil
-				}); err != nil {
-					t.Fatal(err)
-				}
-
-				if len(chunks) != len(tc.Want) {
-					t.Errorf("length: want = %d, got = %d, buffer length = %d, stream buffer length = %d", len(chunks), len(tc.Want), bufSize, sBufSize)
-					file.Seek(0, 0)
-					continue
-				}
-
-				if len(chunksStream) != len(tc.Want) {
-					t.Errorf("length: want = %d, got = %d, buffer length = %d, stream buffer length = %d", len(chunksStream), len(tc.Want), bufSize, sBufSize)
-					file.Seek(0, 0)
-					continue
-				}
-
-				for i, chunk := range chunks {
-					if chunk.Offset != tc.Want[i].Offset {
-						t.Errorf("offset: want = %d, got = %d, buffer = %d, stream buffer length = %d", chunk.Offset, tc.Want[i].Offset, bufSize, sBufSize)
-					}
-					if chunk.Length != tc.Want[i].Length {
-						t.Errorf("length: want = %d, got = %d, buffer = %d, stream buffer length = %d", chunk.Offset, tc.Want[i].Offset, bufSize, sBufSize)
-					}
-					if chunk.Length != int(len(chunk.Chunk)) {
-						t.Errorf("regular split: length mismatch: want = %d, got = %d, buffer length = %d", chunk.Length, uint(len(chunk.Chunk)), bufSize)
-					}
-				}
-
-				for i, chunk := range chunksStream {
-					if chunk.Offset != tc.Want[i].Offset {
-						t.Errorf("offset: want = %d, got = %d, buffer = %d, stream buffer length = %d", chunk.Offset, tc.Want[i].Offset, bufSize, sBufSize)
-					}
-					if chunk.Length != tc.Want[i].Length {
-						t.Errorf("length: want = %d, got = %d, buffer = %d, stream buffer length = %d", chunk.Offset, tc.Want[i].Offset, bufSize, sBufSize)
-					}
-					if chunk.Length != int(len(chunk.Chunk)) {
-						t.Errorf("regular split: length mismatch: want = %d, got = %d, buffer length = %d", chunk.Length, uint(len(chunk.Chunk)), bufSize)
-					}
-				}
-
-				regularSum := regularHasher.Sum(nil)
-				if !reflect.DeepEqual(sekienSha256(t), regularSum) {
-					t.Errorf("regular chunking: sum mismatch: want = %x, got = %x, buffer = %d", sekienSha256(t), regularSum, bufSize)
-				}
-				streamSum := streamHasher.Sum(nil)
-				if !reflect.DeepEqual(sekienSha256(t), streamSum) {
-					t.Errorf("stream chunking: sum mismatch: want = %x, got = %x, buffer = %d, stream buffer = %d", sekienSha256(t), streamSum, bufSize, sBufSize)
 				}
 
 				file.Seek(0, 0)
@@ -864,178 +644,6 @@ func TestSekienChunks(t *testing.T) {
 				t.Errorf("sum mismatch: want = %x, got = %x", sekienSha256(t), sum)
 			}
 		})
-	}
-}
-
-func TestSekienChunksStream(t *testing.T) {
-	file, err := os.Open("fixtures/SekienAkashita.jpg")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-
-	type Chunk struct {
-		Offset int64
-		Length int
-	}
-
-	cases := map[string]struct {
-		Preset     Option
-		BufferSize uint
-		Want       []Chunk
-	}{
-		"16kChunks": {
-			Preset: With16kChunks(),
-			Want: []Chunk{
-				{0, 22366},
-				{22366, 8282},
-				{30648, 16303},
-				{46951, 18696},
-				{65647, 32768},
-				{98415, 11051},
-			},
-			BufferSize: 32768,
-		},
-		"32kChunks": {
-			Preset: With32kChunks(),
-			Want: []Chunk{
-				{0, 32857},
-				{32857, 16408},
-				{49265, 60201},
-			},
-			BufferSize: 65_536,
-		},
-		"64kChunks": {
-			Preset: With64kChunks(),
-			Want: []Chunk{
-				{0, 32857},
-				{32857, 76609},
-			},
-			BufferSize: 131_072,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			defer file.Seek(0, 0)
-
-			chunks := make([]Chunk, 0, 6)
-			chunker, err := NewChunker(context.Background(), WithStreamMode(), tc.Preset, WithBufferSize(tc.BufferSize))
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			hasher := sha256.New()
-			buf := make([]byte, tc.BufferSize)
-			for {
-				n, err := file.Read(buf)
-				if err != nil {
-					if err == io.EOF {
-						break
-					}
-					t.Fatal(err)
-				}
-
-				if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
-					chunks = append(chunks, Chunk{offset, length})
-					_, err := io.Copy(hasher, bytes.NewReader(chunk))
-					return err
-				}); err != nil {
-					t.Fatal(err)
-				}
-
-			}
-
-			if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
-				chunks = append(chunks, Chunk{offset, length})
-				_, err := io.Copy(hasher, bytes.NewReader(chunk))
-				return err
-			}); err != nil {
-				t.Fatal(err)
-			}
-			if len(chunks) != len(tc.Want) {
-				t.Fatalf("chunks length: want = %d, got = %d", len(tc.Want), len(chunks))
-			}
-			for i, res := range tc.Want {
-				if chunks[i].Offset != res.Offset || chunks[i].Length != res.Length {
-					t.Errorf("chunks[%d] : want offset = %d, got offset = %d, want length = %d, got length = %d", i, res.Offset, chunks[i].Offset, res.Length, chunks[i].Length)
-				}
-			}
-
-			sum := hasher.Sum(nil)
-			if !reflect.DeepEqual(sekienSha256(t), sum) {
-				t.Errorf("sum mismatch: want = %x, got = %x", sekienSha256(t), sum)
-			}
-		})
-	}
-}
-
-func TestSekien16kChunksStreamWithMissingPart(t *testing.T) {
-	type Chunk struct {
-		Offset int64
-		Length int
-	}
-	results := []Chunk{
-		{0, 22366},
-		{22366, 8282},
-		{30648, 16303},
-		{46951, 18696},
-		{65647, 32768},
-		{98415, 11051},
-	}
-
-	file, err := os.Open("fixtures/SekienAkashita.jpg")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer file.Close()
-
-	chunks := make([]Chunk, 0, 6)
-	chunker, err := NewChunker(context.Background(), WithStreamMode(), With16kChunks(), WithBufferSize(32768))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	buf := make([]byte, 32768)
-	cpt := 0
-	for {
-		var n int
-		var err error
-		if cpt == 0 || cpt == 3 || cpt == 4 {
-			n = 0
-		} else {
-			n, err = file.Read(buf)
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				t.Fatal(err)
-			}
-		}
-
-		if err := chunker.Split(bytes.NewReader(buf[:n]), func(offset int64, length int, chunk []byte) error {
-			chunks = append(chunks, Chunk{offset, length})
-			return nil
-		}); err != nil {
-			t.Fatal(err)
-		}
-		cpt++
-	}
-
-	if err := chunker.Finalize(func(offset int64, length int, chunk []byte) error {
-		chunks = append(chunks, Chunk{offset, length})
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(chunks) != len(results) {
-		t.Fatalf("chunks length: want = %d, got = %d", len(results), len(chunks))
-	}
-	for i, res := range results {
-		if chunks[i].Offset != res.Offset || chunks[i].Length != res.Length {
-			t.Errorf("chunks[%d] : want offset = %d, got offset = %d, want length = %d, got length = %d", i, res.Offset, chunks[i].Offset, res.Length, chunks[i].Length)
-		}
 	}
 }
 
