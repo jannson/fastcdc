@@ -70,14 +70,6 @@ func With64kChunks() Option {
 	}
 }
 
-func With160kChunks() Option {
-	return func(c *config) {
-		c.minSize = 32_768
-		c.avgSize = 65_536
-		c.maxSize = 163_840
-	}
-}
-
 // WithStreamMode set the chunker in stream mode.
 func WithStreamMode() Option {
 	return func(c *config) {
