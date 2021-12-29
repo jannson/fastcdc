@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 )
 
 const (
@@ -96,12 +95,12 @@ func NewChunker(ctx context.Context, opts ...Option) (*FastCDC, error) {
 		bufferSize = 2 * config.maxSize
 	}
 
-	/* bits := log2(config.avgSize)
+	bits := log2(config.avgSize)
 	if (1 << bits) != config.avgSize {
 		return nil, fmt.Errorf("avgSize should equal to 1<<bits")
-	} */
+	}
 
-	bits := logarithm2(config.avgSize)
+	//bits := logarithm2(config.avgSize)
 	// Mask use 1 bits normalization.
 	// https://github.com/ronomon/deduplication#content-dependent-chunking
 	maskS := mask(bits + 1)
@@ -309,9 +308,9 @@ func mask(bits uint) uint {
 }
 
 // Base 2 logarithm
-func logarithm2(value uint) uint {
+/* func logarithm2(value uint) uint {
 	return uint(math.Round(math.Log2(float64(value))))
-}
+} */
 
 var log2Tab32 []uint = []uint{
 	0, 9, 1, 10, 13, 21, 2, 29,
