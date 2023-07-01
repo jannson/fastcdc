@@ -1,3 +1,3 @@
-module github.com/tigerwill90/fastcdc
+module github.com/jannson/fastcdc
 
 go 1.15
